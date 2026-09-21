@@ -1,0 +1,6 @@
+id,data_reclamacao,canal,texto_reclamacao,produto,status
+REC-2026-00001,2026-09-20,SAC,"Fizeram uma compra de R$ 2.000 no meu cartão que eu não reconheço. Quero bloqueio imediato.",Cartão de Crédito,Aberta
+REC-2026-00002,2026-09-20,Banco Central,"Já reclamei três vezes e ninguém resolve a cobrança duplicada de R$ 780 na minha fatura.",Cartão de Crédito,Em análise
+REC-2026-00003,2026-09-21,Redes Sociais,"O aplicativo não abre e não consigo fazer PIX desde cedo. Péssimo atendimento.",Conta Corrente,Aberta
+REC-2026-00004,2026-09-21,SAC,"Gostaria de entender uma taxa que apareceu no meu empréstimo.",Empréstimo,Aberta
+REC-2026-00005,2026-09-21,Ouvidoria,"Solicitei o cancelamento do seguro há duas semanas e continuo sendo cobrado.",Seguros,Em análise

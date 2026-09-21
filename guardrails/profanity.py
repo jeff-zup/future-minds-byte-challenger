@@ -1,0 +1,11 @@
+import re
+
+# Lista curta de demonstração. Em produção, substituir por vocabulário aprovado pela organização.
+_TERMS = ["porra", "caralho", "merda", "foda", "puta"]
+_PATTERN = re.compile(r"(?i)\b(" + "|".join(map(re.escape, _TERMS)) + r")\b")
+
+
+def sanitize_profanity(text: str | None) -> str | None:
+    if text is None:
+        return None
+    return _PATTERN.sub("***", text)

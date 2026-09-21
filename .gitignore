@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+*.pyc
+output/*.json
+output/*.csv
+output/*.html
+output/logs/*.jsonl
+/claude/
