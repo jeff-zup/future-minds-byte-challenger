@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 import time
@@ -42,6 +43,52 @@ def log_node(node_name: str):
     Também acumula node_history no estado para rastreabilidade individual por reclamação.
     """
     def decorator(func):
+        if asyncio.iscoroutinefunction(func):
+            @wraps(func)
+            async def async_wrapper(state, *args, **kwargs):
+                started_at = _now()
+                started = time.perf_counter()
+                state["current_node"] = node_name
+                log_event({
+                    "reclamacao_id": state.get("id"),
+                    "node": node_name,
+                    "evento": "start",
+                    "timestamp": started_at,
+                })
+                try:
+                    result = await func(state, *args, **kwargs)
+                except Exception as exc:
+                    duration_ms = round((time.perf_counter() - started) * 1000, 2)
+                    log_event({
+                        "reclamacao_id": state.get("id"),
+                        "node": node_name,
+                        "evento": "error",
+                        "timestamp": _now(),
+                        "duration_ms": duration_ms,
+                        "error": str(exc),
+                    })
+                    raise
+                duration_ms = round((time.perf_counter() - started) * 1000, 2)
+                history = list(result.get("node_history", state.get("node_history", [])))
+                history.append({
+                    "node": node_name,
+                    "started_at": started_at,
+                    "finished_at": _now(),
+                    "duration_ms": duration_ms,
+                })
+                result["node_history"] = history
+                result["current_node"] = node_name
+                log_event({
+                    "reclamacao_id": state.get("id"),
+                    "node": node_name,
+                    "evento": "end",
+                    "timestamp": _now(),
+                    "duration_ms": duration_ms,
+                    "output_resumo": _summary(result),
+                })
+                return result
+            return async_wrapper
+
         @wraps(func)
         def wrapper(state, *args, **kwargs):
             started_at = _now()
@@ -52,7 +99,6 @@ def log_node(node_name: str):
                 "node": node_name,
                 "evento": "start",
                 "timestamp": started_at,
-                "input_resumo": _input_summary(state),
             })
 
             try:
@@ -92,28 +138,6 @@ def log_node(node_name: str):
             return result
         return wrapper
     return decorator
-
-
-def log_progress(completed: int, total: int) -> None:
-    """Registra evento de progresso do lote no JSONL de auditoria."""
-    pct = round(completed / total * 100, 1) if total > 0 else 0.0
-    log_event({
-        "evento": "progress",
-        "completed": completed,
-        "total": total,
-        "percent": pct,
-        "timestamp": _now(),
-    })
-
-
-def _input_summary(state: dict) -> str:
-    """Gera string compacta dos campos de entrada para o log de início de nó."""
-    parts = []
-    for key in ("id", "canal", "produto_original", "categoria", "urgencia", "nivel_risco"):
-        value = state.get(key)
-        if value not in (None, ""):
-            parts.append(f"{key}={value}")
-    return "; ".join(parts)
 
 
 def _summary(state: dict) -> str:

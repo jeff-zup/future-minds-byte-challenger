@@ -48,20 +48,11 @@ def _mock_recommendations(dashboard: dict, critical_count: int) -> list[str]:
     return recommendations[:5]
 
 
-def generate_report(results: list[dict[str, Any]], output_dir: Path) -> dict[str, Any]:
+def _build_data(results: list[dict[str, Any]]) -> dict[str, Any]:
     """
-    Agente 3: gera relatório gerencial consolidado a partir dos resultados do pipeline.
-
-    Fluxo:
-        1. Pandas agrega contagens por categoria/produto/urgência/risco
-        2. Filtra casos críticos (urgência ou risco == Crítico)
-        3. Aplica mask_pii na risco_justificativa dos críticos antes de enviar ao LLM
-        4. LLM (ou mock) produz recomendações gerenciais
-        5. Escreve relatorio.json e relatorio.html
-
-    O LLM só recebe o dashboard agregado e até 50 casos críticos — nunca textos brutos.
+    Computa o relatório gerencial sem nenhum I/O de arquivo.
+    Separado para permitir execução em thread pool sem bloquear escrita em disco.
     """
-    output_dir.mkdir(parents=True, exist_ok=True)
     full_df = pd.DataFrame(results)
 
     # Itens que falharam não entram nas estatísticas — categoria/risco vazios
@@ -130,7 +121,7 @@ def generate_report(results: list[dict[str, Any]], output_dir: Path) -> dict[str
                     "revisao_humana": bool(record.get("revisao_humana")),
                 })
 
-    report = {
+    return {
         "dashboard": dashboard,
         "reclamacoes_criticas": critical_items,
         "incidentes_seguranca": incidents,
@@ -138,6 +129,11 @@ def generate_report(results: list[dict[str, Any]], output_dir: Path) -> dict[str
         "recomendacoes": recommendations,
     }
 
+
+def generate_report(results: list[dict[str, Any]], output_dir: Path) -> dict[str, Any]:
+    """Wrapper síncrono para compatibilidade — computa e grava os arquivos de saída."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report = _build_data(results)
     (output_dir / "relatorio.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     (output_dir / "relatorio.html").write_text(_render_html(report), encoding="utf-8")
     return report
