@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>FinGuard — Apresentação Arquitetural | Future Minds 3</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg-dark:#260A12;
+  --bg-dark-2:#18050A;
+  --bg-dark-3:#3c141f;
+  --accent:#D97757;
+  --accent-soft:#CC7958;
+  --accent-strong:#9B4527;
+  --ok:#4faa8b;
+  --ok-soft:#1f3b30;
+  --bad:#c0563f;
+  --bad-soft:#3c1c17;
+  --paper:#F5F2F2;
+  --paper-2:#EBE7E4;
+  --ink:#22161a;
+  --ink-soft:#5b4a4e;
+  --line: rgba(245,242,242,0.14);
+  --line-strong: rgba(245,242,242,0.28);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --font-display:'Inter Tight', 'Manrope', sans-serif;
+  --font-body:'Manrope', 'Inter Tight', sans-serif;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;background:var(--bg-dark);color:var(--paper);font-family:var(--font-body);}
+body{overflow:hidden;}
+h1,h2,h3,h4{font-family:var(--font-display);margin:0;letter-spacing:-0.01em;}
+p{margin:0;}
+.deck{position:relative;width:100vw;height:100vh;}
+.slide{
+  position:absolute; inset:0;
+  display:flex; flex-direction:column; justify-content:center;
+  padding: 5vh 7vw;
+  opacity:0; visibility:hidden; transform: translateY(14px);
+  transition: opacity .35s ease, transform .35s ease;
+}
+.slide.active{opacity:1; visibility:visible; transform:translateY(0);}
+.slide::before{
+  content:""; position:absolute; inset:0; z-index:-1;
+  background:
+    radial-gradient(1200px 600px at 85% -10%, rgba(217,119,87,0.16), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(217,119,87,0.10), transparent 60%),
+    var(--bg-dark);
+}
+.slide.light::before{
+  background:
+    radial-gradient(1100px 550px at 90% -15%, rgba(217,119,87,0.10), transparent 55%),
+    var(--paper);
+}
+.slide.light{color:var(--ink);}
+.slide.light h1, .slide.light h2, .slide.light h3{color:var(--ink);}
+.slide.light .muted{color:var(--ink-soft);}
+
+.kicker{
+  display:inline-flex; align-items:center; gap:8px;
+  font-family:var(--font-display); font-weight:700; font-size:12.5px;
+  letter-spacing:0.14em; text-transform:uppercase;
+  color:var(--accent-soft); margin-bottom:14px;
+}
+.kicker::before{content:""; width:8px; height:8px; border-radius:50%; background:var(--accent); display:inline-block;}
+.light .kicker{color:var(--accent-strong);}
+
+h1.title{font-size:clamp(30px,4vw,54px); font-weight:800; line-height:1.05;}
+h2.h{font-size:clamp(24px,3vw,38px); font-weight:800; line-height:1.1;}
+h3.h3{font-size:clamp(15px,1.6vw,19px); font-weight:700;}
+.muted{color:#d9c9c3; font-weight:400;}
+.light .muted{color:var(--ink-soft);}
+.lead{font-size:clamp(15px,1.5vw,19px); color:#e7d9d4; max-width:900px; line-height:1.55; font-weight:400;}
+.light .lead{color:#3a2a2d;}
+
+.tag{
+  display:inline-block; font-family:var(--font-display); font-weight:700; font-size:11.5px;
+  letter-spacing:0.06em; text-transform:uppercase; padding:5px 12px; border-radius:100px;
+  border:1px solid var(--line-strong); color:#f1e6e2;
+}
+.tag.ok{border-color:transparent; background:var(--ok-soft); color:#bfe9d7;}
+.tag.bad{border-color:transparent; background:var(--bad-soft); color:#f2c8bd;}
+.tag.accent{border-color:transparent; background:var(--accent); color:#241009;}
+
+.grid{display:grid; gap:16px;}
+.grid-2{grid-template-columns:1fr 1fr;}
+.grid-3{grid-template-columns:1fr 1fr 1fr;}
+.grid-4{grid-template-columns:repeat(4,1fr);}
+
+.card{
+  background:rgba(255,255,255,0.045);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:20px 22px;
+}
+.light .card{background:#fff; border-color:#e7dedb; box-shadow:0 2px 14px rgba(38,10,18,0.06);}
+.card h4{font-size:15px; font-weight:700; margin-bottom:6px;}
+.card p.small{font-size:13.5px; line-height:1.5; color:#dcc9c3;}
+.light .card p.small{color:#4c3a3e;}
+
+.procon{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:18px;}
+.procon .col{border-radius:var(--radius); padding:18px 20px; border:1px solid var(--line);}
+.procon .pro{background:linear-gradient(180deg, rgba(79,170,139,0.14), rgba(79,170,139,0.04)); border-color:rgba(79,170,139,0.35);}
+.procon .con{background:linear-gradient(180deg, rgba(192,86,63,0.14), rgba(192,86,63,0.04)); border-color:rgba(192,86,63,0.35);}
+.procon .col h4{display:flex; align-items:center; gap:8px; font-size:14px; letter-spacing:0.03em; text-transform:uppercase; margin-bottom:12px;}
+.procon .pro h4{color:#a8e0c9;}
+.procon .con h4{color:#f0b6a4;}
+.procon ul{margin:0; padding-left:0; list-style:none; display:flex; flex-direction:column; gap:9px;}
+.procon li{font-size:13.6px; line-height:1.48; padding-left:20px; position:relative; color:#e9ded9;}
+.light .procon li{color:#3a2a2d;}
+.procon .pro li::before{content:"✓"; position:absolute; left:0; color:#4faa8b; font-weight:800;}
+.procon .con li::before{content:"×"; position:absolute; left:0; color:#c0563f; font-weight:800;}
+
+.verdict{
+  margin-top:16px; border-radius:var(--radius-sm); padding:14px 18px;
+  background:rgba(217,119,87,0.14); border:1px solid rgba(217,119,87,0.4);
+  font-size:14px; line-height:1.55; color:#fbe9e2;
+}
+.light .verdict{background:#fdf0ea; border-color:#eec6b4; color:#4b2415;}
+.verdict b{color:var(--accent); font-family:var(--font-display);}
+.light .verdict b{color:var(--accent-strong);}
+
+/* Diagrama de grafo */
+.flow{display:flex; align-items:center; gap:0; flex-wrap:wrap; margin-top:22px;}
+.node{
+  background:rgba(255,255,255,0.06); border:1.5px solid var(--line-strong); border-radius:14px;
+  padding:14px 16px; min-width:150px; text-align:center; position:relative;
+}
+.node .lbl{font-family:var(--font-display); font-weight:800; font-size:13.5px;}
+.node .sub{font-size:11.5px; color:#d9c9c3; margin-top:4px;}
+.node.accentnode{border-color:var(--accent); background:rgba(217,119,87,0.14);}
+.node.startend{background:transparent; border-style:dashed; opacity:.75; min-width:80px;}
+.arrow{width:34px; height:2px; background:var(--line-strong); position:relative; flex-shrink:0;}
+.arrow::after{content:""; position:absolute; right:0; top:-4px; border:5px solid transparent; border-left-color:var(--line-strong);}
+.branch{display:flex; flex-direction:column; align-items:center; gap:6px;}
+.branch .cond{font-size:10.5px; color:var(--accent-soft); font-weight:700; text-transform:uppercase; letter-spacing:0.05em;}
+
+/* pipeline guardrails */
+.pipeline{display:flex; align-items:stretch; gap:10px; margin-top:20px; flex-wrap:wrap;}
+.pstep{flex:1; min-width:150px; background:rgba(255,255,255,0.045); border:1px solid var(--line); border-radius:12px; padding:14px; position:relative;}
+.pstep .num{font-family:var(--font-display); font-weight:800; font-size:11px; color:var(--accent-soft); letter-spacing:0.08em;}
+.pstep h5{font-size:13px; font-weight:700; margin:6px 0 4px;}
+.pstep p{font-size:12px; color:#d9c9c3; line-height:1.4;}
+.light .pstep p{color:#5b4a4e;}
+
+table.matrix{width:100%; border-collapse:collapse; margin-top:18px; font-size:13.5px;}
+table.matrix th, table.matrix td{padding:11px 14px; border-bottom:1px solid var(--line); text-align:left;}
+table.matrix th{font-family:var(--font-display); font-size:12px; text-transform:uppercase; letter-spacing:0.04em; color:#d9c9c3;}
+table.matrix td.win{color:#a8e0c9; font-weight:700;}
+table.matrix td.lose{color:#f0b6a4;}
+table.matrix tr.hl td{background:rgba(217,119,87,0.08);}
+table.matrix tr.hl td:first-child{border-left:3px solid var(--accent);}
+
+.stat{display:flex; flex-direction:column; gap:2px;}
+.stat .n{font-family:var(--font-display); font-weight:800; font-size:clamp(28px,4vw,44px); color:var(--accent);}
+.stat .l{font-size:12.5px; color:#d9c9c3; text-transform:uppercase; letter-spacing:0.06em;}
+.light .stat .l{color:var(--ink-soft);}
+
+.footer-tag{position:absolute; bottom:24px; left:7vw; font-size:12px; color:#c7aea6; font-family:var(--font-display); letter-spacing:0.05em;}
+.light .footer-tag{color:#8a6f6a;}
+
+.brand{position:absolute; top:24px; right:7vw; display:flex; align-items:center; gap:10px;}
+.brand .mark{width:26px; height:26px; border-radius:6px; background:var(--accent); display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-weight:900; color:#26130c; font-size:14px;}
+.brand span{font-family:var(--font-display); font-weight:700; font-size:13px; color:#e9d9d4; letter-spacing:0.02em;}
+.light .brand span{color:#4c3a3e;}
+
+.progress{position:fixed; top:0; left:0; height:3px; background:var(--accent); z-index:50; transition:width .3s ease;}
+.nav-dots{position:fixed; bottom:18px; right:7vw; display:flex; gap:6px; z-index:50;}
+.dot{width:7px; height:7px; border-radius:50%; background:rgba(255,255,255,0.25); cursor:pointer; transition:.2s;}
+.dot.on{background:var(--accent); width:20px; border-radius:5px;}
+.counter{position:fixed; bottom:20px; left:7vw; font-family:var(--font-display); font-size:12px; color:#c7aea6; z-index:50; letter-spacing:0.06em;}
+.hint{position:fixed; top:20px; left:7vw; font-size:11px; color:#a98d86; z-index:50; font-family:var(--font-display); letter-spacing:0.04em;}
+
+code, .code{font-family:'SFMono-Regular',Consolas,monospace; font-size:12.5px; background:rgba(0,0,0,0.28); padding:2px 7px; border-radius:6px; color:#f0d9cd;}
+.light code, .light .code{background:#efe4df; color:#7a4028;}
+
+ul.plain{margin:0; padding-left:0; list-style:none; display:flex; flex-direction:column; gap:10px;}
+ul.plain li{font-size:14.5px; line-height:1.5; padding-left:22px; position:relative; color:#e7d9d4;}
+.light ul.plain li{color:#3a2a2d;}
+ul.plain li::before{content:"—"; position:absolute; left:0; color:var(--accent);}
+
+.twocol{display:grid; grid-template-columns:1.05fr 0.95fr; gap:36px; align-items:start;}
+
+@media print{
+  body{overflow:visible;}
+  .slide{position:relative; opacity:1!important; visibility:visible!important; transform:none!important; height:100vh; page-break-after:always;}
+  .progress,.nav-dots,.counter,.hint{display:none;}
+}
+</style>
+</head>
+<body>
+<div class="progress" id="progress" style="width:0%"></div>
+<div class="hint">← → ou espaço para navegar · F para tela cheia</div>
+<div class="deck" id="deck">
+
+<!-- 1. CAPA -->
+<section class="slide active">
+  <div class="brand"><div class="mark">F</div><span>FinGuard</span></div>
+  <div class="kicker">Future Minds 3 · Apresentação Arquitetural</div>
+  <h1 class="title">FinGuard<br><span style="color:var(--accent-soft)">Assistente Inteligente de Análise<br>de Reclamações de Clientes</span></h1>
+  <p class="lead" style="margin-top:22px;">Nível 2 — "O Orquestrador de Análise": sistema multiagente orquestrado por LangGraph que classifica, avalia risco/compliance e gera relatório gerencial a partir de reclamações em texto livre.</p>
+  <div style="margin-top:34px; display:flex; gap:10px; flex-wrap:wrap;">
+    <span class="tag accent">LangGraph</span>
+    <span class="tag">AWS Bedrock · boto3</span>
+    <span class="tag">RAG local (TF-IDF)</span>
+    <span class="tag">Pydantic</span>
+    <span class="tag">Guardrails determinísticos</span>
+  </div>
+  <div class="footer-tag">FinGuard · Nível 2 · Pitch técnico (5min) + Q&A (5min)</div>
+</section>
+
+<!-- 2. O PROBLEMA -->
+<section class="slide">
+  <div class="kicker">01 · O problema de negócio</div>
+  <h2 class="h">Reclamações chegam em texto livre,<br>a triagem manual não escala.</h2>
+  <div class="grid grid-3" style="margin-top:28px;">
+    <div class="card"><h4>Volume e ruído</h4><p class="small">Milhares de reclamações por SAC, Ouvidoria, Procon, Banco Central e redes sociais — tom, gramática e completude variam caso a caso.</p></div>
+    <div class="card"><h4>Inconsistência entre analistas</h4><p class="small">Classificação manual de categoria, produto, urgência e risco varia de analista para analista, especialmente em picos de volume.</p></div>
+    <div class="card"><h4>Risco de compliance</h4><p class="small">Fraude, violação de LGPD/sigilo bancário e menções a órgãos reguladores precisam ser identificadas e escaladas sem depender de sorte.</p></div>
+  </div>
+  <div class="verdict" style="max-width:900px;">O desafio pede exatamente isso: <b>triagem automatizada + análise de risco + relatório acionável</b> — não um chatbot, mas um pipeline de decisão auditável.</div>
+</section>
+
+<!-- 3. ARQUITETURA -->
+<section class="slide">
+  <div class="kicker">02 · Arquitetura implementada</div>
+  <h2 class="h">Um grafo de estado por reclamação,<br>processado em lote com concorrência controlada.</h2>
+  <div class="flow">
+    <div class="node startend"><div class="lbl">CSV</div><div class="sub">500 reclamações</div></div>
+    <div class="arrow"></div>
+    <div class="node"><div class="lbl">agente_1</div><div class="sub">Estruturação</div></div>
+    <div class="arrow"></div>
+    <div class="node"><div class="lbl">agente_2</div><div class="sub">Risco / Compliance</div></div>
+    <div class="arrow"></div>
+    <div class="branch">
+      <div class="cond">se risco = Crítico</div>
+      <div class="node accentnode"><div class="lbl">agente_2b</div><div class="sub">Escalonamento<br>(sem LLM)</div></div>
+    </div>
+    <div class="arrow"></div>
+    <div class="node startend"><div class="lbl">END</div></div>
+  </div>
+  <div class="flow" style="margin-top:8px;">
+    <div class="node startend" style="min-width:150px;"><div class="lbl">Todos os itens concluídos</div></div>
+    <div class="arrow"></div>
+    <div class="node accentnode"><div class="lbl">Agente 3</div><div class="sub">Relatório Gerencial</div></div>
+    <div class="arrow"></div>
+    <div class="node startend"><div class="lbl">relatorio.html/.json</div></div>
+  </div>
+  <p class="lead" style="margin-top:20px;">Implementado em <code>graph/build_graph.py</code> com <code>langgraph.graph.StateGraph</code> sobre um estado tipado (<code>ComplaintState</code>, TypedDict). O grafo é <b>compilado uma única vez</b> e reutilizado para as 500 reclamações via <code>graph.abatch(states, max_concurrency=5)</code> — paralelismo real, não um loop sequencial.</p>
+</section>
+
+<!-- 4. DECISÃO #1: MULTI-AGENTE -->
+<section class="slide">
+  <div class="kicker">03 · Decisão arquitetural</div>
+  <h2 class="h">Por que 3 agentes especializados<br>em vez de um único prompt monolítico?</h2>
+  <div class="procon">
+    <div class="col pro">
+      <h4>✓ Prós</h4>
+      <ul>
+        <li>Separação de responsabilidades: cada prompt é curto e focado numa única decisão (classificar, avaliar risco, recomendar) → menos ambiguidade de instrução.</li>
+        <li>Validação incremental: schema Pydantic por etapa rejeita saída fora do vocabulário <b>antes</b> de contaminar a etapa seguinte.</li>
+        <li>Modelo certo para a tarefa certa: <code>BEDROCK_MODEL_CLASSIFIER/RISK/REPORT</code> permitem modelo mais barato onde a tarefa é simples e mais robusto onde exige mais raciocínio.</li>
+        <li>Auditabilidade por etapa: cada nó loga entrada/saída/duração isoladamente (<code>graph/logging_utils.py</code>).</li>
+        <li>Testabilidade unitária: cada nó é testável isoladamente (ver <code>tests/</code>), sem precisar mockar o pipeline inteiro.</li>
+      </ul>
+    </div>
+    <div class="col con">
+      <h4>× Contras</h4>
+      <ul>
+        <li>Mais chamadas sequenciais por item → latência ponta-a-ponta maior que um único prompt "faça tudo".</li>
+        <li>Mais superfície de prompt engineering: 3 prompts para manter coerentes entre si, não 1.</li>
+        <li>Risco de propagação de erro: se agente_1 erra a categoria, agente_2 herda o erro (efeito cascata).</li>
+        <li>Mais código de orquestração (grafo, roteamento, estado) do que uma função só.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="verdict">Em <b>processamento em lote assíncrono</b> — não é chat em tempo real — a latência extra por item é irrelevante frente ao ganho de auditabilidade e governança exigido em ambiente regulado (Bacen/LGPD). <b>Os prós superam os contras com clareza para este domínio.</b></div>
+</section>
+
+<!-- 5. WORKFLOW vs AGENTE AUTÔNOMO -->
+<section class="slide">
+  <div class="kicker">04 · Decisão arquitetural</div>
+  <h2 class="h">Por que um workflow determinístico (LangGraph)<br>e não um agente autônomo com tool-calling livre?</h2>
+  <p class="lead">A própria literatura de arquitetura agêntica distingue <b>workflows</b> (sequência de passos pré-definida em código, o LLM decide apenas o <i>conteúdo</i> de cada etapa) de <b>agents</b> (o LLM decide dinamicamente <i>quais passos</i> tomar e em que ordem). Escolhemos deliberadamente a primeira categoria.</p>
+  <div class="procon">
+    <div class="col pro">
+      <h4>✓ Prós do grafo explícito</h4>
+      <ul>
+        <li>Estado tipado (<code>ComplaintState</code>): nunca é ambíguo o que cada nó lê e escreve.</li>
+        <li>Roteamento condicional é <b>código Python determinístico</b> (<code>route_after_risk</code>) — não uma decisão que o LLM poderia alucinar, ignorar ou pular.</li>
+        <li>O grafo é um artefato inspecionável e versionável (diff no Git), não um comportamento emergente de prompt.</li>
+        <li>Comportamento idêntico em modo mock e modo real — só a função de decisão muda, a estrutura não.</li>
+      </ul>
+    </div>
+    <div class="col con">
+      <h4>× Contras</h4>
+      <ul>
+        <li>Menos flexível que um agente que escolhe dinamicamente quais ferramentas invocar.</li>
+        <li>Mais boilerplate de orquestração do que "soltar" um agente livre com function-calling.</li>
+        <li>Não se adapta automaticamente a casos fora do desenho original do grafo — exige alteração de código.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="verdict">Regra real do código: reclamações de canal <b>Banco Central/Procon são forçadas para risco Crítico</b> independentemente da resposta do LLM (<code>graph/nodes/risco.py</code>). Um agente autônomo poderia, em tese, "decidir" não escalar. <b>Determinismo de controle de fluxo é requisito de governança, não preferência estética</b> — por isso o veredito favorece workflow sobre agente livre neste domínio.</div>
+</section>
+
+<!-- 6. ONDE A IA GENERATIVA ENTRA -->
+<section class="slide light">
+  <div class="kicker">05 · Onde a IA generativa entra (e onde não entra)</div>
+  <h2 class="h">Julgamento textual vai para o LLM.<br>Garantia e cálculo vão para código determinístico.</h2>
+  <div class="grid grid-2" style="margin-top:26px;">
+    <div class="card" style="border-left:4px solid var(--accent);">
+      <h4>Feito por LLM</h4>
+      <p class="small">Classificação de categoria/produto/sentimento (agente_1) · Parecer qualitativo de risco e flags de compliance (agente_2) · Recomendações gerenciais em linguagem natural (Agente 3)</p>
+    </div>
+    <div class="card" style="border-left:4px solid var(--ok);">
+      <h4>Feito por código determinístico</h4>
+      <p class="small">Estatísticas do dashboard: <code>pandas</code>, nunca LLM — evita alucinação numérica · Override de risco Crítico para canal Bacen/Procon · Decisão de quais áreas escalonar (Compliance/DPO/Jurídico) — <code>agente_2b</code> não chama LLM</p>
+    </div>
+  </div>
+  <div class="verdict" style="margin-top:22px;">Este é o núcleo da maturidade técnica da solução: <b>usar IA generativa onde ela agrega valor de julgamento</b> (linguagem ambígua, contexto textual) <b>e código determinístico onde é preciso garantia</b> (números, regras regulatórias, decisões de compliance).</div>
+</section>
+
+<!-- 7. RAG -->
+<section class="slide">
+  <div class="kicker">06 · RAG sobre a Política Interna</div>
+  <h2 class="h">TF-IDF local em vez de embeddings semânticos —<br>decisão de custo e escopo, não limitação técnica.</h2>
+  <div class="procon">
+    <div class="col pro">
+      <h4>✓ Prós</h4>
+      <ul>
+        <li>Zero dependência externa e zero custo de API de embeddings.</li>
+        <li>100% offline e reproduzível — mesmo resultado em qualquer execução.</li>
+        <li>Suficiente para vocabulário técnico-financeiro estreito (um único documento de política).</li>
+        <li>Interface <code>PolicyRetriever.search(query, k)</code> trocável por FAISS/embeddings sem alterar nenhum agente.</li>
+      </ul>
+    </div>
+    <div class="col con">
+      <h4>× Contras</h4>
+      <ul>
+        <li>Sem generalização semântica: sinônimos e paráfrases distantes do vocabulário do documento recuperam pior.</li>
+        <li>Não escala para corpora grandes ou heterogêneos (múltiplos documentos, múltiplas políticas).</li>
+      </ul>
+    </div>
+  </div>
+  <div class="verdict">O escopo do desafio — <b>um PDF, vocabulário fechado</b> — não justifica o custo/latência de uma pipeline de embeddings. Decisão de custo explícita, documentada em <code>ADR.md</code>.</div>
+</section>
+
+<!-- 8. GUARDRAILS -->
+<section class="slide">
+  <div class="kicker">07 · Segurança e Governança</div>
+  <h2 class="h">Guardrails em camadas — defesa em profundidade,<br>não um único ponto de controle.</h2>
+  <div class="pipeline">
+    <div class="pstep"><div class="num">01</div><h5>Vocabulário controlado</h5><p>Prompt define enums fechados de categoria/produto/urgência/risco.</p></div>
+    <div class="pstep"><div class="num">02</div><h5>Validação de schema</h5><p>Pydantic + regex rejeita qualquer saída do LLM fora do vocabulário permitido.</p></div>
+    <div class="pstep"><div class="num">03</div><h5>Override regulatório</h5><p>Canal Bacen/Procon força risco Crítico — regra determinística, não sugestão do LLM.</p></div>
+    <div class="pstep"><div class="num">04</div><h5>Mascaramento de PII</h5><p>CPF, cartão e dados bancários mascarados antes de qualquer persistência em disco.</p></div>
+    <div class="pstep"><div class="num">05</div><h5>Isolamento do Agente 3</h5><p>Relatório gerencial recebe só agregados + críticos já mascarados — nunca texto bruto.</p></div>
+  </div>
+  <div class="grid grid-2" style="margin-top:22px;">
+    <div class="card"><h4>Filtro de palavras impróprias</h4><p class="small">Resumo do agente_1 passa por <code>sanitize_profanity</code> antes de retornar — atende à validação obrigatória do desafio.</p></div>
+    <div class="card"><h4>Testes automatizados</h4><p class="small"><code>tests/test_guardrails.py</code> cobre mascaramento de PII e filtro de profanidade; <code>test_mock_flow.py</code> cobre o fluxo de escalonamento.</p></div>
+  </div>
+</section>
+
+<!-- 9. CUSTO -->
+<section class="slide light">
+  <div class="kicker">08 · Consciência de custo (critério bônus)</div>
+  <h2 class="h">Cada chamada de LLM é uma decisão de custo,<br>não um reflexo.</h2>
+  <ul class="plain" style="margin-top:22px; max-width:820px;">
+    <li>Modelo configurável <b>por agente</b> (<code>BEDROCK_MODEL_CLASSIFIER/RISK/REPORT</code>): modelo menor para classificação e recomendações, modelo mais robusto reservado para o parecer de risco.</li>
+    <li>Roteamento condicional evita custo do agente de escalonamento nos casos não-críticos — na execução de teste, <b>8 de 15</b> reclamações acionaram o agente_2b; as outras 7 encerraram sem custo adicional.</li>
+    <li>Agregação estatística em <code>pandas</code>, nunca em LLM — dashboard inteiro roda sem uma única chamada de API.</li>
+    <li><code>temperature=0.0</code> reduz variabilidade e retrabalho de re-prompt por resposta inconsistente.</li>
+    <li>Retry com backoff exponencial só em <i>throttling</i> — não há retry ingênuo que multiplique custo em falha real.</li>
+    <li>Modo <code>FINGUARD_MOCK_LLM=true</code> permite todo o ciclo de desenvolvimento e demonstração <b>sem nenhuma chamada paga</b>.</li>
+  </ul>
+</section>
+
+<!-- 10. MATRIZ COMPARATIVA -->
+<section class="slide">
+  <div class="kicker">09 · Síntese comparativa</div>
+  <h2 class="h">Agente único × Agente autônomo livre × Workflow multiagente</h2>
+  <table class="matrix">
+    <thead><tr><th>Eixo</th><th>Agente único (1 prompt)</th><th>Agente autônomo (ReAct livre)</th><th>Workflow multiagente (este projeto)</th></tr></thead>
+    <tbody>
+      <tr><td>Latência por item</td><td class="win">Menor</td><td>Variável / imprevisível</td><td>Maior, mas paralelizável em lote</td></tr>
+      <tr><td>Custo por item</td><td class="win">Menor (1 chamada)</td><td>Imprevisível (nº de passos variável)</td><td>Controlado (modelo por etapa + roteamento condicional)</td></tr>
+      <tr class="hl"><td>Auditabilidade / compliance</td><td class="lose">Baixa (uma caixa-preta)</td><td class="lose">Baixa (decisões emergentes)</td><td class="win">Alta — log e estado por etapa</td></tr>
+      <tr><td>Flexibilidade a casos novos</td><td class="lose">Baixa</td><td class="win">Alta</td><td>Média (exige alterar o grafo)</td></tr>
+      <tr><td>Complexidade de engenharia</td><td class="win">Baixa</td><td>Média</td><td>Média-alta</td></tr>
+      <tr class="hl"><td>Garantia de regra regulatória</td><td class="lose">Depende do prompt</td><td class="lose">Depende do agente "decidir certo"</td><td class="win">Garantida em código, fora do LLM</td></tr>
+      <tr><td>Debugabilidade</td><td class="lose">Difícil (um bloco só)</td><td class="lose">Difícil (trajetória dinâmica)</td><td class="win">Fácil (nó a nó, estado tipado)</td></tr>
+    </tbody>
+  </table>
+  <div class="verdict">Para <b>compliance financeiro</b>, os dois eixos que mais pesam — auditabilidade e garantia regulatória — são exatamente onde o workflow multiagente vence com folga. É essa combinação que justifica pagar o custo de latência e complexidade de engenharia.</div>
+</section>
+
+<!-- 11. RESULTADO REAL -->
+<section class="slide light">
+  <div class="kicker">10 · Execução real (modo mock, sem custo AWS)</div>
+  <h2 class="h">O pipeline roda de ponta a ponta e produz artefatos verificáveis.</h2>
+  <div class="grid grid-4" style="margin-top:26px;">
+    <div class="card"><div class="stat"><span class="n">15/15</span><span class="l">reclamações processadas</span></div></div>
+    <div class="card"><div class="stat"><span class="n">8</span><span class="l">classificadas como críticas</span></div></div>
+    <div class="card"><div class="stat"><span class="n">5</span><span class="l">artefatos gerados por execução</span></div></div>
+    <div class="card"><div class="stat"><span class="n">0.41s</span><span class="l">tempo total (modo mock)</span></div></div>
+  </div>
+  <div class="grid grid-2" style="margin-top:18px;">
+    <div class="card"><h4>Saídas de dados</h4><p class="small"><code>output/resultados.json</code> e <code>.csv</code> — um registro por reclamação, com <code>node_history</code> (tempo por nó) e <code>current_node</code> rastreáveis.</p></div>
+    <div class="card"><h4>Relatório e logs</h4><p class="small"><code>output/relatorio.json</code>/<code>.html</code> — dashboard, críticos e recomendações. <code>output/logs/execucao.jsonl</code> — eventos start/end/error por agente.</p></div>
+  </div>
+</section>
+
+<!-- 12. CHECKLIST NÃO FUNCIONAIS -->
+<section class="slide">
+  <div class="kicker">11 · Requisitos não funcionais do Nível 2</div>
+  <h2 class="h">Checklist de conformidade</h2>
+  <div class="grid grid-2" style="margin-top:26px; max-width:920px;">
+    <div class="card"><h4><span class="tag ok" style="margin-right:8px;">OK</span>Execução local</h4><p class="small">Toda I/O é para <code>output/</code> local. Nenhuma chamada a armazenamento em nuvem no código.</p></div>
+    <div class="card"><h4><span class="tag ok" style="margin-right:8px;">OK</span>Logs por agente</h4><p class="small"><code>log_node</code> decorator grava start/end/error com <code>duration_ms</code> em JSONL para cada nó.</p></div>
+    <div class="card"><h4><span class="tag ok" style="margin-right:8px;">OK</span>Fluxo rastreável</h4><p class="small"><code>current_node</code> + <code>node_history</code> permitem saber em qual agente cada reclamação está/esteve.</p></div>
+    <div class="card"><h4><span class="tag ok" style="margin-right:8px;">OK</span>Relatório em arquivo</h4><p class="small">JSON e HTML gerados ao término do processamento completo do lote.</p></div>
+  </div>
+</section>
+
+<!-- 13. PERGUNTA OBRIGATÓRIA -->
+<section class="slide light">
+  <div class="kicker">12 · Resposta preparada à banca</div>
+  <h2 class="h">"Quais ferramentas de IA você utilizou<br>e como elas contribuíram para a solução?"</h2>
+  <div class="twocol" style="margin-top:24px;">
+    <ul class="plain">
+      <li><b>LangGraph</b> — orquestração explícita do estado e do roteamento condicional entre os 3 agentes.</li>
+      <li><b>AWS Bedrock via boto3</b> — inferência dos LLMs de classificação, risco e recomendações, com retry/backoff nativo.</li>
+      <li><b>RAG local (TF-IDF + scikit-learn)</b> — contextualiza os agentes com a Política Interna sem custo de API adicional.</li>
+      <li><b>Pydantic</b> — validação estrutural que rejeita alucinação de enum antes de propagar erro no pipeline.</li>
+      <li><b>Guardrails determinísticos em Python</b> — regras de compliance que não dependem do LLM "decidir certo".</li>
+    </ul>
+    <div class="card" style="align-self:stretch;">
+      <h4>Frase de fechamento sugerida</h4>
+      <p class="small">"Usamos IA generativa onde ela agrega valor de julgamento sobre linguagem natural, e reservamos regras determinísticas em código para tudo que é garantia regulatória — essa fronteira é a decisão de design mais importante do projeto."</p>
+    </div>
+  </div>
+</section>
+
+<!-- 14. ROADMAP -->
+<section class="slide">
+  <div class="kicker">13 · Roadmap — Nível 3 (sem over-engineering agora)</div>
+  <h2 class="h">O que evoluiria com mais tempo — simplicidade atual foi escolha, não limitação.</h2>
+  <div class="grid grid-3" style="margin-top:26px;">
+    <div class="card"><h4>RAG com embeddings</h4><p class="small">Migrar <code>PolicyRetriever</code> para FAISS/embeddings quando o corpus de políticas crescer além de um documento.</p></div>
+    <div class="card"><h4>Bedrock Guardrails nativos</h4><p class="small">Camada adicional de content filtering gerenciada pela AWS, complementando os guardrails determinísticos atuais.</p></div>
+    <div class="card"><h4>Human-in-the-loop</h4><p class="small">Fila de revisão humana para casos críticos antes do escalonamento automático, quando o volume permitir.</p></div>
+    <div class="card"><h4>Telemetria de custo</h4><p class="small">Custo por chamada e por agente, com dashboards de otimização de modelo por tarefa.</p></div>
+    <div class="card"><h4>Cache semântico</h4><p class="small">Evitar reclassificar reclamações near-duplicadas recorrentes no mesmo canal.</p></div>
+    <div class="card"><h4>Paralelismo adaptativo</h4><p class="small"><code>max_concurrency</code> dinâmico baseado em taxa de throttling observada em tempo real.</p></div>
+  </div>
+</section>
+
+<!-- 15. ENCERRAMENTO -->
+<section class="slide">
+  <div class="brand"><div class="mark">F</div><span>FinGuard</span></div>
+  <div class="kicker">Encerramento</div>
+  <h1 class="title">Workflow multiagente,<br><span style="color:var(--accent-soft)">não IA de caixa-preta.</span></h1>
+  <p class="lead" style="margin-top:20px;">Cada decisão de arquitetura — 3 agentes, LangGraph, TF-IDF local, regras determinísticas de compliance — foi tomada pesando prós contra contras para o domínio de reclamações financeiras reguladas, não por padrão de mercado.</p>
+  <div style="margin-top:30px; display:flex; gap:10px; flex-wrap:wrap;">
+    <span class="tag accent">Perguntas?</span>
+    <span class="tag">github.com · repositório do desafio</span>
+  </div>
+  <div class="footer-tag">FinGuard · Future Minds 3 · Nível 2 — O Orquestrador de Análise</div>
+</section>
+
+</div>
+
+<div class="counter" id="counter">01 / 15</div>
+<div class="nav-dots" id="dots"></div>
+
+<script>
+(function(){
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const total = slides.length;
+  let idx = 0;
+  const progress = document.getElementById('progress');
+  const counter = document.getElementById('counter');
+  const dotsWrap = document.getElementById('dots');
+
+  slides.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i===0 ? ' on' : '');
+    d.addEventListener('click', () => go(i));
+    dotsWrap.appendChild(d);
+  });
+  const dots = Array.from(dotsWrap.children);
+
+  function render(){
+    slides.forEach((s,i) => s.classList.toggle('active', i===idx));
+    dots.forEach((d,i) => d.classList.toggle('on', i===idx));
+    progress.style.width = ((idx+1)/total*100) + '%';
+    counter.textContent = String(idx+1).padStart(2,'0') + ' / ' + total;
+  }
+  function go(i){ idx = Math.max(0, Math.min(total-1, i)); render(); }
+  function next(){ go(idx+1); }
+  function prev(){ go(idx-1); }
+
+  window.addEventListener('keydown', (e) => {
+    if(['ArrowRight','ArrowDown','PageDown',' '].includes(e.key)){ e.preventDefault(); next(); }
+    if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)){ e.preventDefault(); prev(); }
+    if(e.key === 'Home'){ go(0); }
+    if(e.key === 'End'){ go(total-1); }
+    if(e.key.toLowerCase() === 'f'){
+      if(!document.fullscreenElement){ document.documentElement.requestFullscreen(); }
+      else { document.exitFullscreen(); }
+    }
+  });
+  let touchX = null;
+  window.addEventListener('touchstart', e => touchX = e.touches[0].clientX);
+  window.addEventListener('touchend', e => {
+    if(touchX===null) return;
+    const dx = e.changedTouches[0].clientX - touchX;
+    if(Math.abs(dx) > 50){ dx < 0 ? next() : prev(); }
+    touchX = null;
+  });
+  document.getElementById('deck').addEventListener('click', (e) => {
+    const rect = document.getElementById('deck').getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    if (clickX > rect.width * 0.7) next();
+  });
+  render();
+})();
+</script>
+</body>
+</html>
