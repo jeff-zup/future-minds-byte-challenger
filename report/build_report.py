@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 from jinja2 import Template
+from markupsafe import escape
 
 from config import settings
 from guardrails.pii import mask_pii
@@ -61,10 +62,28 @@ def generate_report(results: list[dict[str, Any]], output_dir: Path) -> dict[str
     O LLM só recebe o dashboard agregado e até 50 casos críticos — nunca textos brutos.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    df = pd.DataFrame(results)
+    full_df = pd.DataFrame(results)
+
+    # Itens que falharam não entram nas estatísticas — categoria/risco vazios
+    # contaminariam o dashboard com uma faixa "Não informado" enganosa. Eles são
+    # reportados à parte, no painel de falhas, para não sumirem silenciosamente.
+    if "status_processamento" in full_df.columns:
+        failed_df = full_df[full_df["status_processamento"] == "falhou"]
+        df = full_df[full_df["status_processamento"] != "falhou"].copy()
+    else:
+        failed_df = full_df.iloc[0:0]
+        df = full_df.copy()
+
+    failures = [
+        {"id": r.get("id"), "canal": r.get("canal"), "erro": r.get("erro_processamento"),
+         "ultimo_no": r.get("current_node")}
+        for r in failed_df.to_dict(orient="records")
+    ]
 
     dashboard = {
+        "total_recebido": int(len(full_df)),
         "total_processado": int(len(df)),
+        "total_falhas": int(len(failed_df)),
         "por_categoria": _counts(df, "categoria"),
         "por_produto": _counts(df, "produto"),
         "por_urgencia": _counts(df, "urgencia"),
@@ -98,9 +117,24 @@ def generate_report(results: list[dict[str, Any]], output_dir: Path) -> dict[str
             # do relatório. Usa recomendações determinísticas como substituto.
             recommendations = _mock_recommendations(dashboard, len(critical_items))
 
+    # Painel de segurança: itens em que o guardrail de entrada detectou tentativa de
+    # injeção. Ficam visíveis para a triagem manual em vez de só existirem no JSONL.
+    incidents = []
+    if "injection_flags" in df.columns:
+        for record in df.to_dict(orient="records"):
+            if record.get("injection_flags"):
+                incidents.append({
+                    "id": record.get("id"),
+                    "canal": record.get("canal"),
+                    "regras": list(record["injection_flags"]),
+                    "revisao_humana": bool(record.get("revisao_humana")),
+                })
+
     report = {
         "dashboard": dashboard,
         "reclamacoes_criticas": critical_items,
+        "incidentes_seguranca": incidents,
+        "falhas_processamento": failures,
         "recomendacoes": recommendations,
     }
 
@@ -110,20 +144,33 @@ def generate_report(results: list[dict[str, Any]], output_dir: Path) -> dict[str
 
 
 def _bars(data: dict[str, int]) -> str:
-    """Gera linhas de barras HTML proporcionais ao valor máximo do dicionário."""
+    """
+    Gera linhas de barras HTML proporcionais ao valor máximo do dicionário.
+
+    O retorno é inserido no template com `|safe`, então o escape precisa acontecer AQUI:
+    `label` vem de colunas do CSV (ex.: produto) e não é confiável. `width` e `value`
+    são derivados de inteiros, por isso não podem carregar payload.
+    """
     if not data:
         return "<p>Sem dados.</p>"
     max_value = max(data.values()) or 1
     parts = []
     for label, value in data.items():
         width = max(3, round((value / max_value) * 100))
-        parts.append(f'<div class="bar-row"><div class="bar-label">{label}</div><div class="bar"><span style="width:{width}%"></span></div><div class="bar-value">{value}</div></div>')
+        parts.append(f'<div class="bar-row"><div class="bar-label">{escape(label)}</div><div class="bar"><span style="width:{width}%"></span></div><div class="bar-value">{int(value)}</div></div>')
     return "\n".join(parts)
 
 
 def _render_html(report: dict[str, Any]) -> str:
-    """Renderiza o relatório como página HTML auto-contida via Jinja2."""
-    template = Template("""
+    """
+    Renderiza o relatório como página HTML auto-contida via Jinja2.
+
+    autoescape=True é OBRIGATÓRIO aqui: `jinja2.Template` vem com autoescape DESLIGADO
+    por padrão, e campos como `canal` e `id` chegam crus do CSV externo até
+    `{{x.canal}}`/`{{x.id}}`. Sem isso, uma reclamação com `<script>` no canal vira
+    XSS armazenado no relatório aberto pelo time de Compliance.
+    """
+    template = Template(autoescape=True, source="""
 <!doctype html>
 <html lang="pt-BR">
 <head>
@@ -144,8 +191,8 @@ li{margin-bottom:8px}@media(max-width:800px){.cards,.grid{grid-template-columns:
 <div class="cards">
 <div class="card"><span>Total processado</span><strong>{{ d.total_processado }}</strong></div>
 <div class="card"><span>Críticas</span><strong>{{ critical_count }}</strong></div>
-<div class="card"><span>Categorias</span><strong>{{ d.por_categoria|length }}</strong></div>
-<div class="card"><span>Produtos</span><strong>{{ d.por_produto|length }}</strong></div>
+<div class="card"><span>Incidentes de segurança</span><strong class="{{ 'critical' if report.incidentes_seguranca else '' }}">{{ report.incidentes_seguranca|length }}</strong></div>
+<div class="card"><span>Falhas de processamento</span><strong class="{{ 'critical' if report.falhas_processamento else '' }}">{{ report.falhas_processamento|length }}</strong></div>
 </div>
 <div class="grid">
 <div class="panel"><h2>Por categoria</h2>{{ category_bars|safe }}</div>
@@ -159,6 +206,20 @@ li{margin-bottom:8px}@media(max-width:800px){.cards,.grid{grid-template-columns:
 <table><thead><tr><th>ID</th><th>Canal</th><th>Categoria</th><th>Produto</th><th>Urgência</th><th>Risco</th><th>Parecer</th><th>Escalado</th></tr></thead><tbody>
 {% for x in report.reclamacoes_criticas %}<tr><td>{{x.id}}</td><td>{{x.canal}}</td><td>{{x.categoria}}</td><td>{{x.produto}}</td><td class="critical">{{x.urgencia}}</td><td class="critical">{{x.nivel_risco}}</td><td>{{x.risco_justificativa}}</td><td>{{'Sim' if x.escalado else 'Não'}}</td></tr>{% endfor %}
 </tbody></table>{% else %}<p>Nenhuma reclamação crítica.</p>{% endif %}
+</div>
+<div class="panel"><h2>Incidentes de segurança (guardrail de entrada)</h2>
+{% if report.incidentes_seguranca %}
+<p>Reclamações em que o texto do cliente disparou regras de injeção. O item seguiu no pipeline e foi marcado para triagem manual — nenhuma reclamação é descartada por suspeita.</p>
+<table><thead><tr><th>ID</th><th>Canal</th><th>Regras disparadas</th><th>Revisão humana</th></tr></thead><tbody>
+{% for i in report.incidentes_seguranca %}<tr><td>{{i.id}}</td><td>{{i.canal}}</td><td class="critical">{{ i.regras|join(', ') }}</td><td>{{'Sim' if i.revisao_humana else 'Não'}}</td></tr>{% endfor %}
+</tbody></table>{% else %}<p>Nenhuma tentativa de injeção detectada.</p>{% endif %}
+</div>
+<div class="panel"><h2>Falhas de processamento</h2>
+{% if report.falhas_processamento %}
+<p>Itens que falharam mesmo após retry individual. Os dados de entrada foram preservados em <code>resultados.json</code> para reprocessamento.</p>
+<table><thead><tr><th>ID</th><th>Canal</th><th>Último nó</th><th>Erro</th></tr></thead><tbody>
+{% for f in report.falhas_processamento %}<tr><td>{{f.id}}</td><td>{{f.canal}}</td><td>{{f.ultimo_no}}</td><td class="critical">{{f.erro}}</td></tr>{% endfor %}
+</tbody></table>{% else %}<p>Todos os {{ d.total_recebido }} itens foram processados sem falha.</p>{% endif %}
 </div>
 </div></body></html>
 """)

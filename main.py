@@ -14,7 +14,8 @@ import pandas as pd
 
 from config import settings
 from graph.build_graph import build_item_graph
-from graph.logging_utils import log_progress, reset_log
+from graph.logging_utils import log_event, reset_log
+from guardrails.output_safety import sanitize_row_for_csv
 from guardrails.pii import mask_pii
 from rag.retriever import PolicyRetriever
 from report.build_report import generate_report
@@ -52,8 +53,12 @@ def make_initial_state(row: pd.Series) -> dict:
         "risco_flags": [],
         "escalado": False,
         "guardrail_bloqueado": False,
+        "injection_flags": [],
+        "revisao_humana": False,
         "current_node": "inicio",
         "node_history": [],
+        "status_processamento": "ok",
+        "erro_processamento": None,
     }
 
 
@@ -67,6 +72,69 @@ def sanitize_for_persistence(item: dict) -> dict:
     clean["resumo"] = mask_pii(clean.get("resumo"))
     clean["risco_justificativa"] = mask_pii(clean.get("risco_justificativa"))
     return clean
+
+
+def failure_record(state: dict, exc: BaseException) -> dict:
+    """
+    Converte uma exceção não recuperada em registro de falha auditável.
+
+    Preserva os dados de entrada para que o item possa ser reprocessado depois,
+    em vez de simplesmente desaparecer do resultado.
+    """
+    return {
+        **state,
+        "status_processamento": "falhou",
+        "erro_processamento": f"{type(exc).__name__}: {exc}",
+    }
+
+
+async def process_batch(graph, states: list[dict]) -> list[dict]:
+    """
+    Executa o lote tolerando falha individual.
+
+    Sem `return_exceptions=True`, uma única exceção em qualquer nó — o LLM devolvendo
+    categoria fora do enum e o Pydantic rejeitando em ClassificationOutput.model_validate,
+    ou LLMError após esgotar o retry de throttling — aborta o abatch inteiro e descarta
+    TODAS as reclamações já processadas, sem gravar nada em disco. Com 500 itens e LLM
+    real, isso é praticamente garantido.
+
+    Duas fases:
+        1. Lote completo coletando exceções em vez de propagá-las.
+        2. Retry individual e serializado só dos que falharam — falha transitória
+           (throttling, timeout de rede) costuma passar na segunda tentativa.
+
+    Quem falha nas duas vezes vira registro com status_processamento="falhou".
+    """
+    results = await graph.abatch(
+        states,
+        config={"max_concurrency": settings.max_concurrency},
+        return_exceptions=True,
+    )
+
+    failed = [i for i, r in enumerate(results) if isinstance(r, BaseException)]
+    if failed:
+        print(f"⚠ {len(failed)} item(ns) falharam na 1ª tentativa — refazendo individualmente...")
+        retried = await graph.abatch(
+            [states[i] for i in failed],
+            config={"max_concurrency": 1},
+            return_exceptions=True,
+        )
+        for index, result in zip(failed, retried):
+            results[index] = result
+
+    final: list[dict] = []
+    for state, result in zip(states, results):
+        if isinstance(result, BaseException):
+            log_event({
+                "reclamacao_id": state.get("id"),
+                "node": state.get("current_node", "desconhecido"),
+                "evento": "item_descartado",
+                "error": f"{type(result).__name__}: {result}",
+            })
+            final.append(failure_record(state, result))
+        else:
+            final.append(result)
+    return final
 
 
 async def run() -> None:
@@ -99,27 +167,9 @@ async def run() -> None:
     retriever = PolicyRetriever(settings.policy_path)
     graph = build_item_graph(retriever)
 
-    # Processa as reclamações concorrentemente com limite de workers e progresso em tempo real
+    # abatch processa todas as reclamações concorrentemente, tolerando falha individual
     states = [make_initial_state(row) for _, row in df.iterrows()]
-    total = len(states)
-    print(f"Processando {total} reclamações...")
-
-    sem = asyncio.Semaphore(settings.max_concurrency)
-    completed = 0
-
-    async def process_one(state: dict) -> dict:
-        nonlocal completed
-        async with sem:
-            result = await graph.ainvoke(state)
-        completed += 1
-        pct = completed / total * 100
-        print(f"\r  [{completed}/{total}] {pct:.1f}% concluído", end="", flush=True)
-        log_progress(completed, total)
-        return result
-
-    results = list(await asyncio.gather(*[process_one(s) for s in states]))
-    print()  # quebra de linha após a barra de progresso
-    print("Gerando relatórios e salvando resultados...")
+    results = await process_batch(graph, states)
 
     # Mascara PII antes de gravar qualquer dado em disco
     clean_results = [sanitize_for_persistence(x) for x in results]
@@ -128,17 +178,29 @@ async def run() -> None:
         encoding="utf-8",
     )
 
-    # risco_flags e node_history são listas — serializa para string para compatibilidade com CSV
-    export_df = pd.DataFrame(clean_results)
-    for col in ("risco_flags", "node_history"):
-        export_df[col] = export_df[col].apply(lambda x: json.dumps(x, ensure_ascii=False))
-    export_df.to_csv(output_dir / "resultados.csv", index=False)
+    # risco_flags, injection_flags e node_history são listas — serializa para string
+    export_rows = []
+    for item in clean_results:
+        row_out = dict(item)
+        for col in ("risco_flags", "injection_flags", "node_history"):
+            row_out[col] = json.dumps(row_out.get(col, []), ensure_ascii=False)
+        # Neutraliza fórmula antes de exportar: resultados.csv é aberto no Excel
+        export_rows.append(sanitize_row_for_csv(row_out))
+    pd.DataFrame(export_rows).to_csv(output_dir / "resultados.csv", index=False)
 
     report = generate_report(clean_results, output_dir)
     elapsed = time.perf_counter() - started
 
     critical = len(report["reclamacoes_criticas"])
-    print(f"✓ {len(clean_results)}/{len(states)} processadas")
+    ok = sum(1 for x in clean_results if x.get("status_processamento") == "ok")
+    failures = len(clean_results) - ok
+    flagged = sum(1 for x in clean_results if x.get("injection_flags"))
+
+    print(f"✓ {ok}/{len(states)} processadas com sucesso")
+    if failures:
+        print(f"⚠ {failures} com falha (ver status_processamento em resultados.json)")
+    if flagged:
+        print(f"⚠ {flagged} com tentativa de injeção detectada — marcadas para revisão humana")
     print(f"✓ {critical} reclamações críticas")
     print("✓ output/resultados.json")
     print("✓ output/resultados.csv")
