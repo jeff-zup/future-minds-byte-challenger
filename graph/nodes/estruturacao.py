@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from graph.logging_utils import log_node
+from guardrails.injection import SYSTEM_HARDENING, detect_injection, wrap_untrusted
 from guardrails.pii import mask_pii
 from guardrails.profanity import sanitize_profanity
 from llm.bedrock import bedrock_llm
@@ -106,6 +107,11 @@ def build_node(retriever):
     """
     @log_node("agente_1")
     def node_estruturacao(state):
+        # GUARDRAIL DE ENTRADA: o texto vem de canal externo não confiável.
+        # A reclamação NUNCA é descartada — apenas sinalizada para revisão humana,
+        # porque um falso positivo não pode custar uma reclamação regulatória legítima.
+        injection_flags = detect_injection(state.get("texto_reclamacao"))
+
         # Monta query combinando canal, produto e texto para recuperar trechos relevantes da Política Interna
         query = (
             f"classificação de urgência e procedimento para canal {state['canal']}; "
@@ -116,6 +122,9 @@ def build_node(retriever):
         if settings.mock_llm:
             result = _mock(state)
         else:
+            # PII é mascarada ANTES de sair da máquina: o texto cru com CPF/cartão
+            # não deve trafegar até a AWS. Os agentes só precisam do padrão, não do dado.
+            safe_text = mask_pii(state["texto_reclamacao"]) or ""
             prompt = f"""
 POLÍTICA INTERNA RELEVANTE:
 {policy_context}
@@ -123,10 +132,15 @@ POLÍTICA INTERNA RELEVANTE:
 DADOS DA RECLAMAÇÃO:
 Canal: {state['canal']}
 Produto informado no CSV: {state.get('produto_original') or 'vazio'}
-Texto: {state['texto_reclamacao']}
+
+{wrap_untrusted(safe_text)}
 """.strip()
-            raw = bedrock_llm.invoke_json(settings.classifier_model, SYSTEM_PROMPT, prompt)
+            raw = bedrock_llm.invoke_json(
+                settings.classifier_model, SYSTEM_PROMPT + SYSTEM_HARDENING, prompt
+            )
             result = ClassificationOutput.model_validate(raw).model_dump()
+
+        result["injection_flags"] = injection_flags
 
         # Guardrails aplicados no resumo antes de persistir: remove PII e palavrões
         result["resumo"] = sanitize_profanity(mask_pii(result["resumo"]))

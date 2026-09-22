@@ -7,5 +7,6 @@ output/*.json
 output/*.csv
 output/*.html
 output/logs/*.jsonl
+output/security/
 /claude/
 /ai/
