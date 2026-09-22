@@ -12,6 +12,8 @@ from guardrails.pii import mask_pii
 from llm.bedrock import bedrock_llm
 
 
+# Instrução do Agente 3: recebe apenas dados agregados (nunca textos brutos de reclamações)
+# para evitar que o LLM processe PII e gerar recomendações gerenciais objetivas.
 REPORT_SYSTEM = """
 Você é o Agente 3 do FinGuard, responsável por recomendações gerenciais.
 Receba apenas estatísticas agregadas e casos críticos já analisados.
@@ -22,10 +24,15 @@ Retorne SOMENTE JSON válido no formato:
 
 
 def _counts(df: pd.DataFrame, col: str) -> dict[str, int]:
+    """Contagem de valores de uma coluna como dict {valor: frequência}."""
     return {str(k): int(v) for k, v in df[col].fillna("Não informado").value_counts().to_dict().items()}
 
 
 def _mock_recommendations(dashboard: dict, critical_count: int) -> list[str]:
+    """
+    Recomendações determinísticas para modo mock.
+    Prioriza casos críticos e aponta categorias/produtos com maior volume.
+    """
     recommendations = []
     if critical_count:
         recommendations.append(f"Priorizar revisão imediata das {critical_count} reclamações críticas e validar o cumprimento do fluxo de escalonamento.")
@@ -40,6 +47,18 @@ def _mock_recommendations(dashboard: dict, critical_count: int) -> list[str]:
 
 
 def generate_report(results: list[dict[str, Any]], output_dir: Path) -> dict[str, Any]:
+    """
+    Agente 3: gera relatório gerencial consolidado a partir dos resultados do pipeline.
+
+    Fluxo:
+        1. Pandas agrega contagens por categoria/produto/urgência/risco
+        2. Filtra casos críticos (urgência ou risco == Crítico)
+        3. Aplica mask_pii na risco_justificativa dos críticos antes de enviar ao LLM
+        4. LLM (ou mock) produz recomendações gerenciais
+        5. Escreve relatorio.json e relatorio.html
+
+    O LLM só recebe o dashboard agregado e até 50 casos críticos — nunca textos brutos.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(results)
 
@@ -51,9 +70,11 @@ def generate_report(results: list[dict[str, Any]], output_dir: Path) -> dict[str
         "por_nivel_risco": _counts(df, "nivel_risco"),
     }
 
+    # Inclui na lista crítica qualquer item com urgência OU risco Crítico
     critical_df = df[(df["urgencia"] == "Crítica") | (df["nivel_risco"] == "Crítico")].copy()
     critical_cols = ["id", "canal", "categoria", "produto", "urgencia", "nivel_risco", "risco_justificativa", "escalado"]
     critical_items = critical_df[critical_cols].to_dict(orient="records")
+    # Mascara PII na justificativa antes de qualquer envio ao LLM ou persistência
     for item in critical_items:
         item["risco_justificativa"] = mask_pii(item.get("risco_justificativa"))
 
@@ -62,7 +83,7 @@ def generate_report(results: list[dict[str, Any]], output_dir: Path) -> dict[str
     else:
         payload = {
             "dashboard": dashboard,
-            "criticos": critical_items[:50],
+            "criticos": critical_items[:50],  # Limita para não exceder context window do LLM
         }
         raw = bedrock_llm.invoke_json(
             settings.report_model,
@@ -83,6 +104,7 @@ def generate_report(results: list[dict[str, Any]], output_dir: Path) -> dict[str
 
 
 def _bars(data: dict[str, int]) -> str:
+    """Gera linhas de barras HTML proporcionais ao valor máximo do dicionário."""
     if not data:
         return "<p>Sem dados.</p>"
     max_value = max(data.values()) or 1
@@ -94,6 +116,7 @@ def _bars(data: dict[str, int]) -> str:
 
 
 def _render_html(report: dict[str, Any]) -> str:
+    """Renderiza o relatório como página HTML auto-contida via Jinja2."""
     template = Template("""
 <!doctype html>
 <html lang="pt-BR">

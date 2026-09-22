@@ -7,8 +7,17 @@ from graph.state import ComplaintState
 
 
 def build_item_graph(retriever):
+    """
+    Monta o grafo LangGraph para processar uma reclamação individual.
+
+    Fluxo linear com desvio condicional:
+        agente_1 (classificação) → agente_2 (risco) → [agente_2b se Crítico] → END
+
+    O mesmo grafo compilado é reutilizado para todas as reclamações via abatch().
+    """
     graph = StateGraph(ComplaintState)
 
+    # Registra os três nós do pipeline
     graph.add_node("agente_1", build_estruturacao(retriever))
     graph.add_node("agente_2", build_risco(retriever))
     graph.add_node("agente_2b", node_escalonamento)
@@ -16,6 +25,8 @@ def build_item_graph(retriever):
     graph.set_entry_point("agente_1")
     graph.add_edge("agente_1", "agente_2")
 
+    # Agente 2b (escalonamento) só é acionado quando o risco é Crítico.
+    # Casos não-críticos encerram diretamente em END sem custo adicional.
     def route_after_risk(state: ComplaintState):
         return "agente_2b" if state["nivel_risco"] == "Crítico" else END
 

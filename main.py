@@ -6,6 +6,7 @@ import sys
 import time
 from pathlib import Path
 
+# Força UTF-8 no stdout do Windows para suportar caracteres como ✓ sem UnicodeEncodeError
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -20,6 +21,7 @@ from report.build_report import generate_report
 
 
 def normalize_optional(value):
+    """Converte pandas NA e strings em branco para None de forma uniforme."""
     if pd.isna(value):
         return None
     value = str(value).strip()
@@ -27,6 +29,12 @@ def normalize_optional(value):
 
 
 def make_initial_state(row: pd.Series) -> dict:
+    """
+    Cria o estado inicial de uma reclamação a partir de uma linha do CSV.
+
+    Campos de análise (categoria, produto, sentimento, etc.) começam como None
+    e são preenchidos pelos agentes conforme o pipeline avança.
+    """
     return {
         "id": str(row["id"]),
         "data_reclamacao": str(row["data_reclamacao"]),
@@ -49,6 +57,10 @@ def make_initial_state(row: pd.Series) -> dict:
 
 
 def sanitize_for_persistence(item: dict) -> dict:
+    """
+    Aplica mask_pii nos campos de texto livre antes de qualquer gravação em disco.
+    Garante que CPF, número de cartão e dados bancários nunca cheguem aos arquivos de saída.
+    """
     clean = dict(item)
     clean["texto_reclamacao"] = mask_pii(clean.get("texto_reclamacao"))
     clean["resumo"] = mask_pii(clean.get("resumo"))
@@ -60,7 +72,7 @@ async def run() -> None:
     started = time.perf_counter()
     output_dir = settings.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
-    reset_log()
+    reset_log()  # Limpa o JSONL de execuções anteriores
 
     print("FinGuard iniciado")
     print(f"Modo LLM: {'MOCK' if settings.mock_llm else 'AWS Bedrock'}")
@@ -77,22 +89,27 @@ async def run() -> None:
         raise ValueError(f"Colunas obrigatórias ausentes no CSV: {sorted(missing)}")
 
     print(f"✓ {len(df)} reclamações carregadas")
+
+    # O retriever é construído uma única vez e compartilhado entre todos os agentes via closure
     print("Construindo índice local da Política Interna...")
     retriever = PolicyRetriever(settings.policy_path)
     graph = build_item_graph(retriever)
 
+    # abatch processa todas as reclamações concorrentemente com limite de workers
     states = [make_initial_state(row) for _, row in df.iterrows()]
     results = await graph.abatch(
         states,
         config={"max_concurrency": settings.max_concurrency},
     )
 
+    # Mascara PII antes de gravar qualquer dado em disco
     clean_results = [sanitize_for_persistence(x) for x in results]
     (output_dir / "resultados.json").write_text(
         json.dumps(clean_results, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
+    # risco_flags e node_history são listas — serializa para string para compatibilidade com CSV
     export_df = pd.DataFrame(clean_results)
     for col in ("risco_flags", "node_history"):
         export_df[col] = export_df[col].apply(lambda x: json.dumps(x, ensure_ascii=False))

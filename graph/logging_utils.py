@@ -8,10 +8,12 @@ from functools import wraps
 from pathlib import Path
 
 LOG_FILE = Path("output/logs/execucao.jsonl")
+# Lock garante escrita segura sob concorrência do abatch (múltiplas reclamações processadas em paralelo)
 _LOCK = threading.Lock()
 
 
 def reset_log() -> None:
+    """Apaga o log no início de cada execução para não acumular dados de runs anteriores."""
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     LOG_FILE.write_text("", encoding="utf-8")
 
@@ -21,6 +23,7 @@ def _now() -> str:
 
 
 def log_event(event: dict) -> None:
+    """Appenda um evento JSON ao JSONL de forma thread-safe."""
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     with _LOCK:
         with LOG_FILE.open("a", encoding="utf-8") as fh:
@@ -28,6 +31,16 @@ def log_event(event: dict) -> None:
 
 
 def log_node(node_name: str):
+    """
+    Decorator que envolve qualquer nó do LangGraph com logging automático.
+
+    Registra três eventos no JSONL por chamada:
+        - "start": quando o nó começa
+        - "end": quando termina, com duration_ms e resumo do estado
+        - "error": se lançar exceção, com duration_ms e mensagem
+
+    Também acumula node_history no estado para rastreabilidade individual por reclamação.
+    """
     def decorator(func):
         @wraps(func)
         def wrapper(state, *args, **kwargs):
@@ -56,6 +69,7 @@ def log_node(node_name: str):
                 raise
 
             duration_ms = round((time.perf_counter() - started) * 1000, 2)
+            # Preserva o histórico acumulado de nós anteriores antes de adicionar este
             history = list(result.get("node_history", state.get("node_history", [])))
             history.append({
                 "node": node_name,
@@ -80,6 +94,7 @@ def log_node(node_name: str):
 
 
 def _summary(state: dict) -> str:
+    """Gera string compacta dos campos-chave do estado para o log de fim de nó."""
     parts = []
     for key in ("categoria", "urgencia", "nivel_risco", "escalado"):
         value = state.get(key)
