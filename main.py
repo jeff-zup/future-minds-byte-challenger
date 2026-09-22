@@ -18,7 +18,7 @@ from graph.logging_utils import log_event, reset_log
 from guardrails.output_safety import sanitize_row_for_csv
 from guardrails.pii import mask_pii
 from rag.retriever import PolicyRetriever
-from report.build_report import generate_report
+from graph.nodes.relatorio import node_relatorio
 
 
 def normalize_optional(value):
@@ -90,7 +90,7 @@ def failure_record(state: dict, exc: BaseException) -> dict:
 
 async def process_batch(graph, states: list[dict]) -> list[dict]:
     """
-    Executa o lote tolerando falha individual.
+    Executa o lote tolerando falha individual, com progresso em tempo real.
 
     Sem `return_exceptions=True`, uma única exceção em qualquer nó — o LLM devolvendo
     categoria fora do enum e o Pydantic rejeitando em ClassificationOutput.model_validate,
@@ -99,17 +99,32 @@ async def process_batch(graph, states: list[dict]) -> list[dict]:
     real, isso é praticamente garantido.
 
     Duas fases:
-        1. Lote completo coletando exceções em vez de propagá-las.
+        1. Lote completo via asyncio.gather + semáforo: processa em paralelo com limite de
+           workers e reporta porcentagem a cada item concluído.
         2. Retry individual e serializado só dos que falharam — falha transitória
            (throttling, timeout de rede) costuma passar na segunda tentativa.
 
     Quem falha nas duas vezes vira registro com status_processamento="falhou".
     """
-    results = await graph.abatch(
-        states,
-        config={"max_concurrency": settings.max_concurrency},
-        return_exceptions=True,
-    )
+    total = len(states)
+    completed = 0
+    sem = asyncio.Semaphore(settings.max_concurrency)
+    print(f"Processando {total} reclamações...")
+
+    async def run_one(state: dict):
+        nonlocal completed
+        async with sem:
+            try:
+                result = await graph.ainvoke(state)
+            except Exception as exc:
+                result = exc
+        completed += 1
+        pct = completed / total * 100
+        print(f"\r  [{completed}/{total}] {pct:.1f}% concluído", end="", flush=True)
+        return result
+
+    results = list(await asyncio.gather(*[run_one(s) for s in states]))
+    print()  # quebra de linha após a barra de progresso
 
     failed = [i for i, r in enumerate(results) if isinstance(r, BaseException)]
     if failed:
@@ -170,6 +185,7 @@ async def run() -> None:
     # abatch processa todas as reclamações concorrentemente, tolerando falha individual
     states = [make_initial_state(row) for _, row in df.iterrows()]
     results = await process_batch(graph, states)
+    print("Gerando relatórios e salvando resultados...")
 
     # Mascara PII antes de gravar qualquer dado em disco
     clean_results = [sanitize_for_persistence(x) for x in results]
@@ -188,7 +204,8 @@ async def run() -> None:
         export_rows.append(sanitize_row_for_csv(row_out))
     pd.DataFrame(export_rows).to_csv(output_dir / "resultados.csv", index=False)
 
-    report = generate_report(clean_results, output_dir)
+    report_state = await node_relatorio({"results": clean_results, "output_dir": output_dir, "node_history": [], "current_node": "agente_2"})
+    report = report_state["report"]
     elapsed = time.perf_counter() - started
 
     critical = len(report["reclamacoes_criticas"])
