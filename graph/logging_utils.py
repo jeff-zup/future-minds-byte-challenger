@@ -52,6 +52,7 @@ def log_node(node_name: str):
                 "node": node_name,
                 "evento": "start",
                 "timestamp": started_at,
+                "input_resumo": _input_summary(state),
             })
 
             try:
@@ -91,6 +92,28 @@ def log_node(node_name: str):
             return result
         return wrapper
     return decorator
+
+
+def log_progress(completed: int, total: int) -> None:
+    """Registra evento de progresso do lote no JSONL de auditoria."""
+    pct = round(completed / total * 100, 1) if total > 0 else 0.0
+    log_event({
+        "evento": "progress",
+        "completed": completed,
+        "total": total,
+        "percent": pct,
+        "timestamp": _now(),
+    })
+
+
+def _input_summary(state: dict) -> str:
+    """Gera string compacta dos campos de entrada para o log de início de nó."""
+    parts = []
+    for key in ("id", "canal", "produto_original", "categoria", "urgencia", "nivel_risco"):
+        value = state.get(key)
+        if value not in (None, ""):
+            parts.append(f"{key}={value}")
+    return "; ".join(parts)
 
 
 def _summary(state: dict) -> str:

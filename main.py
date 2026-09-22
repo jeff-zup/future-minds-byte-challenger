@@ -14,7 +14,7 @@ import pandas as pd
 
 from config import settings
 from graph.build_graph import build_item_graph
-from graph.logging_utils import reset_log
+from graph.logging_utils import log_progress, reset_log
 from guardrails.pii import mask_pii
 from rag.retriever import PolicyRetriever
 from report.build_report import generate_report
@@ -99,12 +99,27 @@ async def run() -> None:
     retriever = PolicyRetriever(settings.policy_path)
     graph = build_item_graph(retriever)
 
-    # abatch processa todas as reclamações concorrentemente com limite de workers
+    # Processa as reclamações concorrentemente com limite de workers e progresso em tempo real
     states = [make_initial_state(row) for _, row in df.iterrows()]
-    results = await graph.abatch(
-        states,
-        config={"max_concurrency": settings.max_concurrency},
-    )
+    total = len(states)
+    print(f"Processando {total} reclamações...")
+
+    sem = asyncio.Semaphore(settings.max_concurrency)
+    completed = 0
+
+    async def process_one(state: dict) -> dict:
+        nonlocal completed
+        async with sem:
+            result = await graph.ainvoke(state)
+        completed += 1
+        pct = completed / total * 100
+        print(f"\r  [{completed}/{total}] {pct:.1f}% concluído", end="", flush=True)
+        log_progress(completed, total)
+        return result
+
+    results = list(await asyncio.gather(*[process_one(s) for s in states]))
+    print()  # quebra de linha após a barra de progresso
+    print("Gerando relatórios e salvando resultados...")
 
     # Mascara PII antes de gravar qualquer dado em disco
     clean_results = [sanitize_for_persistence(x) for x in results]
