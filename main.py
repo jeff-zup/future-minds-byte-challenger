@@ -51,6 +51,7 @@ def make_initial_state(row: pd.Series) -> dict:
         "risco_justificativa": None,
         "risco_flags": [],
         "escalado": False,
+        "guardrail_bloqueado": False,
         "current_node": "inicio",
         "node_history": [],
     }
@@ -74,8 +75,11 @@ async def run() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     reset_log()  # Limpa o JSONL de execuções anteriores
 
+    provider_label = {"bedrock": "AWS Bedrock", "litellm": "AI Gateway (LiteLLM)"}.get(
+        settings.llm_provider, settings.llm_provider
+    )
     print("FinGuard iniciado")
-    print(f"Modo LLM: {'MOCK' if settings.mock_llm else 'AWS Bedrock'}")
+    print(f"Modo LLM: {'MOCK' if settings.mock_llm else provider_label}")
 
     if not settings.dataset_path.exists():
         raise FileNotFoundError(f"Dataset não encontrado: {settings.dataset_path}")

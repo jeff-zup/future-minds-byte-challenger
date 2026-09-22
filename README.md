@@ -98,6 +98,77 @@ BEDROCK_MODEL_REPORT=<model-id-disponivel-na-sua-conta>
 
 A autenticação usa a cadeia padrão do boto3. Você pode usar `aws configure`, variáveis de ambiente ou `AWS_PROFILE`.
 
+### Rodar com AI Gateway (LiteLLM)
+
+Como alternativa ao AWS Bedrock, o FinGuard pode chamar os modelos através de um
+AI Gateway compatível com [LiteLLM Proxy](https://docs.litellm.ai/). A troca de
+provedor é feita apenas via configuração — nenhum código dos agentes precisa mudar.
+
+No `.env`:
+
+```env
+FINGUARD_MOCK_LLM=false
+FINGUARD_LLM_PROVIDER=litellm
+
+LITELLM_API_BASE=https://seu-ai-gateway.exemplo.com
+LITELLM_TOKEN=<sua-key-do-gateway>
+LITELLM_KEY_ALIAS=future-minds-013
+LITELLM_BUDGET_USD=6.54
+
+# Aliases de modelo configurados no gateway (Claude via Bedrock por trás):
+LITELLM_MODEL_CLASSIFIER=bedrock-anthropic-claude-haiku-4-5
+LITELLM_MODEL_RISK=bedrock-anthropic-claude-sonnet-4-5
+LITELLM_MODEL_REPORT=bedrock-anthropic-claude-sonnet-4-5
+```
+
+#### Validação de certificado TLS (CA interno/corporativo)
+
+Se o AI Gateway usa um certificado emitido por uma CA interna/corporativa (não
+presente na cadeia de confiança padrão do sistema), a validação TLS vai falhar
+com erro do tipo `SSLCertVerificationError` / `CERTIFICATE_VERIFY_FAILED`.
+
+Para resolver, exporte o certificado da CA (ou a cadeia completa) em formato
+PEM e aponte para ele via `LITELLM_CA_BUNDLE`:
+
+```env
+LITELLM_CA_BUNDLE=/caminho/para/ca-corporativa.pem
+```
+
+Dica para obter o certificado do gateway via OpenSSL:
+
+```bash
+openssl s_client -connect dx-ai-gateway.platform.sbox.zupcloud.corp:443 -showcerts </dev/null 2>/dev/null \
+  | openssl x509 -outform PEM > ca-corporativa.pem
+```
+
+Se o gateway responder com a cadeia completa (root + intermediários), talvez
+seja necessário extrair todos os blocos `-----BEGIN CERTIFICATE-----` e
+concatená-los em um único arquivo PEM.
+
+Como último recurso (apenas debug local, **nunca em produção**), é possível
+desabilitar a verificação TLS:
+
+```env
+LITELLM_VERIFY_SSL=false
+```
+
+Quando `LITELLM_CA_BUNDLE` está definido, ele tem prioridade sobre
+`LITELLM_VERIFY_SSL` — o cliente sempre tentará validar contra o bundle
+informado.
+
+Então:
+
+```bash
+python main.py
+```
+
+> Instale a dependência `openai` (já incluída em `requirements.txt`) com
+> `pip install -r requirements.txt`. O gateway LiteLLM Proxy expõe uma API
+> 100% compatível com o formato OpenAI, por isso usamos o SDK oficial `openai`
+> (mais leve e estável) em vez do SDK `litellm` no lado cliente.
+> `LITELLM_BUDGET_USD` é apenas informativo neste projeto — o controle de
+> orçamento em si é feito pelo gateway/chave.
+
 ## 3. Executar
 
 ```bash
