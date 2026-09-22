@@ -19,7 +19,7 @@ Então SQL Injection, no sentido estrito de comprometer uma query, **não é exp
 
 O relato, porém, estava **direcionalmente correto**: a intuição de que "entrada não
 confiável chega crua a um interpretador" se aplica — só que os interpretadores desta
-arquitetura são outros três. Investigando a partir do relato, confirmamos **quatro
+arquitetura são outros três. Investigando a partir do relato, confirmamos **cinco
 vulnerabilidades reais**, todas com a mesma causa-raiz.
 
 ### Causa-raiz comum
@@ -37,6 +37,7 @@ Banco Central) e chegavam crus a cada interpretador a jusante.
 | 2 | XSS Armazenado | CWE-79 | `report/build_report.py` | Alta |
 | 3 | CSV Formula Injection | CWE-1236 | `main.py` (exportação) | Média |
 | 4 | Vazamento de PII para terceiro | CWE-359 | prompts enviados ao Bedrock | Média |
+| 5 | Vazamento de PII em log e erro | CWE-532 | `logging_utils.py`, `main.py` | Média |
 
 ### 1. Prompt Injection (CWE-1427)
 
@@ -161,6 +162,40 @@ catalogados precisam ser detectados, a taxa de sinalização não pode passar de
 nenhum item fora da lista pode ser sinalizado — o que falha tanto com falso positivo
 novo quanto com ataque novo ainda não inspecionado.
 
+### 5. Vazamento de PII por mensagem de erro (CWE-532/CWE-209)
+
+Encontrado numa revisão posterior, **incluindo código meu**: as mensagens de exceção
+nunca passavam por `mask_pii`.
+
+`llm/utils.py::extract_json` embute até 2000 caracteres da resposta crua do modelo no
+texto da exceção — e essa resposta contém o `resumo` da reclamação, logo CPF, cartão,
+telefone e e-mail. Essa mensagem era gravada crua em cinco artefatos:
+
+- `resultados.json` (campo `erro_processamento`, que `sanitize_for_persistence` não mascarava)
+- `resultados.csv`
+- `relatorio.json` e `relatorio.html` (painel de falhas)
+- `output/logs/execucao.jsonl` (`logging_utils.py`, evento `error`)
+
+O resultado era contraditório dentro do mesmo registro:
+
+```
+texto_reclamacao   : CPF [CPF]
+erro_processamento : ValueError: ... 'cliente Joao CPF 123.456.789-00 cartao 4111 1111 1111 1111'
+```
+
+O campo protegido mascarado ao lado do campo de erro vazando o dado inteiro.
+
+Parte do alcance foi introduzida pela própria correção de resiliência: o campo
+`erro_processamento` passou a persistir em disco o que antes só existia em log.
+
+**Correção:** `guardrails/pii.py::safe_error_message` mascara e trunca a mensagem em
+300 caracteres, aplicada nos três pontos de gravação (`logging_utils`, `failure_record`
+e o `log_event` de item descartado), mais `mask_pii` no `erro_processamento` dentro de
+`sanitize_for_persistence` como defesa em profundidade. O diagnóstico é preservado:
+tipo da exceção e causa continuam legíveis, só os dados pessoais viram placeholder.
+
+Regressão em `tests/test_error_pii.py`.
+
 ## O que continua sendo risco aceito
 
 - **Detecção por padrão tem limite.** Um payload de injeção suficientemente criativo
@@ -168,6 +203,14 @@ novo quanto com ataque novo ainda não inspecionado.
   não depende da detecção funcionar.
 - **Lista de profanidade é de demonstração** (`guardrails/profanity.py`), como o próprio
   código anota. Em produção viria de vocabulário aprovado, fora do código.
+- **`LITELLM_VERIFY_SSL=false` desliga a verificação de certificado** do AI Gateway.
+  O código já anota que é só para debug local. Vale um aviso em runtime se for usado
+  com `FINGUARD_MOCK_LLM=false`, para não passar despercebido em produção.
+- **O campo `canal` não passa por `mask_pii`.** Vem do CSV e é renderizado no relatório.
+  Hoje é escapado como HTML, então não é executável, mas se um canal vier com PII ela
+  aparece no relatório. Não tratado por `canal` ser vocabulário fechado na prática.
+- **Traceback não capturado ainda imprime a exceção crua no stdout.** O mascaramento
+  cobre os artefatos persistidos; um crash fora do `process_batch` escaparia disso.
 - **`FINGUARD_POLICY_PATH` / `FINGUARD_DATASET_PATH` aceitam qualquer caminho.** Não foi
   tratado por serem controlados pelo operador, não pelo cliente — está fora do modelo
   de ameaça.

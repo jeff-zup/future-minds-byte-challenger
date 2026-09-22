@@ -63,3 +63,27 @@ def mask_pii(text: str | None) -> str | None:
     for pattern, replacement in PATTERNS:
         masked = pattern.sub(replacement, masked)
     return masked
+
+
+# Limite de tamanho da mensagem de erro persistida. Exceções de parse do LLM
+# embutem até 2000 chars da resposta crua (ver llm/utils.extract_json) — isso
+# polui o log e aumenta a superfície de vazamento sem ajudar no diagnóstico.
+_ERROR_MESSAGE_LIMIT = 300
+
+
+def safe_error_message(exc: BaseException, limit: int = _ERROR_MESSAGE_LIMIT) -> str:
+    """
+    Converte uma exceção em mensagem segura para log e persistência.
+
+    Necessário porque mensagens de erro carregam PII sem passar por mask_pii:
+    `llm.utils.extract_json` embute a resposta crua do modelo (que contém o
+    resumo da reclamação, logo CPF e cartão) no texto da exceção, e um
+    ValidationError do Pydantic ecoa o valor do campo rejeitado.
+
+    Sem isso, o mesmo registro que grava `texto_reclamacao` como "CPF [CPF]"
+    gravava o CPF em claro ao lado, no campo de erro.
+    """
+    message = mask_pii(f"{type(exc).__name__}: {exc}") or ""
+    if len(message) > limit:
+        message = message[: limit - 3] + "..."
+    return message
