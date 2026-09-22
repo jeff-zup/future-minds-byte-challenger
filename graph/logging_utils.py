@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 
+from guardrails.pii import safe_error_message
+
 LOG_FILE = Path("output/logs/execucao.jsonl")
 # Lock garante escrita segura sob concorrência do abatch (múltiplas reclamações processadas em paralelo)
 _LOCK = threading.Lock()
@@ -65,7 +67,9 @@ def log_node(node_name: str):
                         "evento": "error",
                         "timestamp": _now(),
                         "duration_ms": duration_ms,
-                        "error": str(exc),
+                        # mask_pii aqui também: o ramo async loga a mesma exceção
+                        # do ramo síncrono, e ela carrega a resposta crua do LLM.
+                        "error": safe_error_message(exc),
                     })
                     raise
                 duration_ms = round((time.perf_counter() - started) * 1000, 2)
@@ -111,7 +115,7 @@ def log_node(node_name: str):
                     "evento": "error",
                     "timestamp": _now(),
                     "duration_ms": duration_ms,
-                    "error": str(exc),
+                    "error": safe_error_message(exc),
                 })
                 raise
 

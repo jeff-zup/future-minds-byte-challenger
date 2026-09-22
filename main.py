@@ -16,7 +16,7 @@ from config import settings
 from graph.build_graph import build_item_graph
 from graph.logging_utils import log_event, reset_log
 from guardrails.output_safety import sanitize_row_for_csv
-from guardrails.pii import mask_pii
+from guardrails.pii import mask_pii, safe_error_message
 from rag.retriever import PolicyRetriever
 from graph.nodes.relatorio import node_relatorio
 
@@ -71,6 +71,9 @@ def sanitize_for_persistence(item: dict) -> dict:
     clean["texto_reclamacao"] = mask_pii(clean.get("texto_reclamacao"))
     clean["resumo"] = mask_pii(clean.get("resumo"))
     clean["risco_justificativa"] = mask_pii(clean.get("risco_justificativa"))
+    # Defesa em profundidade: mensagens de erro carregam PII vinda da resposta
+    # crua do LLM e não passam pelo mask_pii dos campos de texto livre.
+    clean["erro_processamento"] = mask_pii(clean.get("erro_processamento"))
     return clean
 
 
@@ -84,7 +87,7 @@ def failure_record(state: dict, exc: BaseException) -> dict:
     return {
         **state,
         "status_processamento": "falhou",
-        "erro_processamento": f"{type(exc).__name__}: {exc}",
+        "erro_processamento": safe_error_message(exc),
     }
 
 
@@ -144,7 +147,7 @@ async def process_batch(graph, states: list[dict]) -> list[dict]:
                 "reclamacao_id": state.get("id"),
                 "node": state.get("current_node", "desconhecido"),
                 "evento": "item_descartado",
-                "error": f"{type(result).__name__}: {result}",
+                "error": safe_error_message(result),
             })
             final.append(failure_record(state, result))
         else:
