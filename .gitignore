@@ -10,3 +10,5 @@ output/logs/*.jsonl
 output/security/
 /claude/
 /ai/
+.idea
+/cert/

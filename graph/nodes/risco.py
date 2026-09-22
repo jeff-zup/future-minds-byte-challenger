@@ -6,7 +6,8 @@ from config import settings
 from graph.logging_utils import log_node
 from guardrails.injection import SYSTEM_HARDENING, wrap_untrusted
 from guardrails.pii import mask_pii
-from llm.bedrock import bedrock_llm
+from llm.factory import llm_client
+from llm.utils import GuardrailBlockedError
 
 
 # Schema Pydantic que valida a saída de risco do LLM.
@@ -45,6 +46,8 @@ Retorne SOMENTE JSON válido:
 }
 Não invente violações ou fatos ausentes no texto.
 """.strip()
+# A instrução sobre o bloco de texto do cliente vive em guardrails.injection.SYSTEM_HARDENING,
+# que é concatenado a este prompt e nomeia os delimitadores realmente usados.
 
 
 def _mock(state: dict) -> dict:
@@ -129,10 +132,17 @@ Canal: {state.get('canal')}
 
 {wrap_untrusted(safe_text, label='Texto original da reclamação')}
 """.strip()
-            raw = bedrock_llm.invoke_json(
-                settings.risk_model, SYSTEM_PROMPT + SYSTEM_HARDENING, prompt
-            )
-            result = RiskOutput.model_validate(raw).model_dump()
+            try:
+                raw = llm_client.invoke_json(
+                    settings.model_risk, SYSTEM_PROMPT + SYSTEM_HARDENING, prompt
+                )
+                result = RiskOutput.model_validate(raw).model_dump()
+            except GuardrailBlockedError:
+                # Fallback gracioso: bloqueio de guardrail não deve derrubar a
+                # reclamação inteira. Usa a avaliação heurística determinística
+                # e sinaliza no estado para auditoria/revisão posterior.
+                result = _mock(state)
+                result["guardrail_bloqueado"] = True
 
         # Regra determinística da Política Interna: Banco Central e Procon exigem risco Crítico
         # independentemente da avaliação do LLM — garante conformidade regulatória sem depender de IA.

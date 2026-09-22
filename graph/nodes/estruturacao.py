@@ -7,7 +7,8 @@ from graph.logging_utils import log_node
 from guardrails.injection import SYSTEM_HARDENING, detect_injection, wrap_untrusted
 from guardrails.pii import mask_pii
 from guardrails.profanity import sanitize_profanity
-from llm.bedrock import bedrock_llm
+from llm.factory import llm_client
+from llm.utils import GuardrailBlockedError
 
 
 # Schema Pydantic que valida e rejeita qualquer resposta do LLM fora dos valores permitidos.
@@ -47,6 +48,8 @@ Retorne SOMENTE JSON válido com exatamente:
 }
 O resumo deve ter no máximo 3 frases e não deve inventar fatos.
 """.strip()
+# A instrução sobre o bloco de texto do cliente vive em guardrails.injection.SYSTEM_HARDENING,
+# que é concatenado a este prompt e nomeia os delimitadores realmente usados.
 
 
 def _mock(state: dict) -> dict:
@@ -135,10 +138,19 @@ Produto informado no CSV: {state.get('produto_original') or 'vazio'}
 
 {wrap_untrusted(safe_text)}
 """.strip()
-            raw = bedrock_llm.invoke_json(
-                settings.classifier_model, SYSTEM_PROMPT + SYSTEM_HARDENING, prompt
-            )
-            result = ClassificationOutput.model_validate(raw).model_dump()
+            try:
+                raw = llm_client.invoke_json(
+                    settings.model_classifier, SYSTEM_PROMPT + SYSTEM_HARDENING, prompt
+                )
+                result = ClassificationOutput.model_validate(raw).model_dump()
+            except GuardrailBlockedError:
+                # O gateway bloqueou a requisição por um guardrail de segurança
+                # (ex.: falso positivo de prompt injection). Em vez de derrubar
+                # a reclamação inteira, aplicamos a classificação heurística
+                # determinística como fallback e sinalizamos isso no estado
+                # para auditoria/revisão posterior.
+                result = _mock(state)
+                result["guardrail_bloqueado"] = True
 
         result["injection_flags"] = injection_flags
 
