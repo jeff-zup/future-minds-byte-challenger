@@ -1,8 +1,0 @@
-{
-  "companyName": "Zup Innovation",
-  "companyWebsite": "https://www.zup.com.br/",
-  "intendedUsers": "0",
-  "industryOption": "Financial Services",
-  "otherIndustryOption": "",
-  "useCases": "Prototype for an AI challenge that analyzes simulated customer complaints, classifies category, product, sentiment and urgency, evaluates compliance and risk indicators, and generates management reports. No real customer data is used."
-}
