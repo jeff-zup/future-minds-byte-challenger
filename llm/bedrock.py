@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import re
 import time
 from typing import Any
 
@@ -9,33 +7,7 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 from config import settings
-
-
-class LLMError(RuntimeError):
-    """Exceção unificada para falhas de comunicação com o AWS Bedrock."""
-    pass
-
-
-def _extract_json(text: str) -> dict[str, Any]:
-    """
-    Extrai JSON da resposta do LLM com tolerância a formatação extra.
-
-    Estratégia em dois passos:
-        1. Remove blocos de código markdown (```json ... ```) e tenta json.loads direto.
-        2. Se falhar, localiza o primeiro { e o último } e tenta parsear só esse trecho.
-           Cobre casos onde o LLM adiciona texto antes/depois do JSON.
-    """
-    cleaned = text.strip()
-    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s*```$", "", cleaned)
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start >= 0 and end > start:
-            return json.loads(cleaned[start : end + 1])
-        raise
+from llm.utils import LLMError, extract_json
 
 
 def _is_throttling(exc: ClientError) -> bool:
@@ -110,7 +82,7 @@ class BedrockLLM:
 
     def invoke_json(self, model_id: str, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         """Chama invoke_text e faz parse do JSON retornado pelo LLM."""
-        return _extract_json(self.invoke_text(model_id, system_prompt, user_prompt))
+        return extract_json(self.invoke_text(model_id, system_prompt, user_prompt))
 
 
 # Singleton compartilhado entre todos os agentes para reutilizar a conexão boto3

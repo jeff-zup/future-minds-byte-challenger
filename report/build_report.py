@@ -9,7 +9,8 @@ from jinja2 import Template
 
 from config import settings
 from guardrails.pii import mask_pii
-from llm.bedrock import bedrock_llm
+from llm.factory import llm_client
+from llm.utils import GuardrailBlockedError
 
 
 # Instrução do Agente 3: recebe apenas dados agregados (nunca textos brutos de reclamações)
@@ -85,12 +86,17 @@ def generate_report(results: list[dict[str, Any]], output_dir: Path) -> dict[str
             "dashboard": dashboard,
             "criticos": critical_items[:50],  # Limita para não exceder context window do LLM
         }
-        raw = bedrock_llm.invoke_json(
-            settings.report_model,
-            REPORT_SYSTEM,
-            json.dumps(payload, ensure_ascii=False),
-        )
-        recommendations = [str(x) for x in raw.get("recomendacoes", [])][:5]
+        try:
+            raw = llm_client.invoke_json(
+                settings.model_report,
+                REPORT_SYSTEM,
+                json.dumps(payload, ensure_ascii=False),
+            )
+            recommendations = [str(x) for x in raw.get("recomendacoes", [])][:5]
+        except GuardrailBlockedError:
+            # Fallback gracioso: bloqueio de guardrail não deve impedir a geração
+            # do relatório. Usa recomendações determinísticas como substituto.
+            recommendations = _mock_recommendations(dashboard, len(critical_items))
 
     report = {
         "dashboard": dashboard,

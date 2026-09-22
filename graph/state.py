@@ -24,6 +24,7 @@ class ComplaintState(TypedDict):
     risco_justificativa: Optional[str]  # Texto explicando o nível de risco atribuído
     risco_flags: list[str]          # Tags: "fraude", "lgpd", "orgao_regulador", ...
     escalado: bool                  # True se Agente 2b foi executado
+    guardrail_bloqueado: Optional[bool]  # True se o gateway bloqueou a chamada e o fallback heurístico foi usado
 
     # --- Metadados de rastreamento ---
     current_node: str

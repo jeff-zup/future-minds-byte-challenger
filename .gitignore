@@ -9,3 +9,5 @@ output/*.html
 output/logs/*.jsonl
 /claude/
 /ai/
+.idea
+/cert/
