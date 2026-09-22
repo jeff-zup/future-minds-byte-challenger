@@ -26,6 +26,12 @@ class ComplaintState(TypedDict):
     escalado: bool                  # True se Agente 2b foi executado
     guardrail_bloqueado: Optional[bool]  # True se o gateway bloqueou a chamada e o fallback heurístico foi usado
 
+    # --- Segurança (guardrails de entrada) ---
+    injection_flags: list[str]      # Regras de injeção disparadas: "sql_tautologia", "turno_falso", ...
+    revisao_humana: bool            # True quando o item exige triagem manual antes de tratar
+
     # --- Metadados de rastreamento ---
     current_node: str
     node_history: list[dict]        # Registro de tempo de execução por nó
+    status_processamento: str       # "ok" | "falhou"
+    erro_processamento: Optional[str]  # Tipo e mensagem da exceção, quando status == "falhou"
